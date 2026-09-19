@@ -5,8 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Facial Recognition Prototype</title>
     <style>
-      body { margin: 0; padding: 24px; color: #222; background: #f5f5f5; font: 16px system-ui, sans-serif; }
-      main { max-width: 900px; margin: 0 auto; }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        padding: 24px;
+        color: #222;
+        background: #f5f5f5 url("assets/sanrio-laptop-wallpapers.png") center / cover fixed no-repeat;
+        font: 16px system-ui, sans-serif;
+      }
+      main { max-width: 900px; margin: 0 auto; padding: 24px; background: rgba(255, 255, 255, .88); border-radius: 10px; }
       h1 { margin: 0 0 8px; font-size: 24px; }
       p { margin: 0 0 20px; color: #666; }
       .camera { position: relative; overflow: hidden; aspect-ratio: 16 / 10; background: #111; border-radius: 6px; }
@@ -60,9 +67,26 @@
         start.disabled = true;
         start.textContent = 'Starting…';
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          video.srcObject = stream;
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' },
+            audio: false
+          });
           const track = stream.getVideoTracks()[0];
+          const capabilities = track.getCapabilities?.();
+
+          if (capabilities?.width?.max && capabilities?.height?.max) {
+            try {
+              await track.applyConstraints({
+                width: { ideal: capabilities.width.max },
+                height: { ideal: capabilities.height.max }
+              });
+            } catch (error) {
+              console.warn('The camera could not use its maximum resolution.', error);
+            }
+          }
+
+          video.srcObject = stream;
+          await video.play();
           const settings = track.getSettings();
           cameraStatus.textContent = 'Live';
           status.textContent = 'Camera is live';

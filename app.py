@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from insightface.app import FaceAnalysis
 
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Facial Recognition Prototype")
+app.mount("/assets", StaticFiles(directory=ROOT / "assets"), name="assets")
 face_app: FaceAnalysis | None = None
 
 
