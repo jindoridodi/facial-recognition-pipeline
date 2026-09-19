@@ -59,6 +59,10 @@
       let latestDetection = null;
       let detectionTimer = null;
 
+      function scheduleDetection(delay = 0) {
+        detectionTimer = setTimeout(runDetection, delay);
+      }
+
       start.addEventListener('click', async () => {
         start.disabled = true;
         start.textContent = 'Starting…';
@@ -100,7 +104,7 @@
 
       async function runDetection() {
         if (!video.srcObject || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-          detectionTimer = setTimeout(runDetection, 250);
+          scheduleDetection(50);
           return;
         }
 
@@ -123,7 +127,8 @@
         } catch (error) {
           detectStatus.textContent = error.message;
         } finally {
-          if (video.srcObject) detectionTimer = setTimeout(runDetection, 250);
+          // Keep one request in flight and begin the next detection immediately.
+          if (video.srcObject) scheduleDetection();
         }
       }
 
