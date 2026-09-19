@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Facial Recognition Prototype</title>
+    <title>Facial Recognition</title>
     <style>
       body {
         min-height: 100vh;
@@ -25,12 +25,16 @@
       button:disabled { cursor: default; opacity: .5; }
       .info { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 16px; color: #555; font-size: 14px; }
       .info strong { color: #222; }
+      .aligned { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+      .aligned:empty { display: none; }
+      .aligned figure { margin: 0; }
+      .aligned img { display: block; width: 112px; height: 112px; border-radius: 6px; }
+      .aligned figcaption { margin-top: 4px; color: #555; font-size: 12px; text-align: center; }
     </style>
   </head>
   <body>
     <main>
-      <h1>Facial Recognition Prototype</h1>
-      <p>Local webcam input with InsightFace detection.</p>
+      <h1>Facial Recognition</h1>
       <div class="camera">
         <video id="video" autoplay playsinline muted></video>
         <canvas id="overlay"></canvas>
@@ -44,6 +48,7 @@
         <span>Faces: <strong id="faceCount">—</strong></span>
         <span>Detection: <strong id="detectStatus">Waiting for camera</strong></span>
       </div>
+      <div class="aligned" id="alignedFaces" aria-live="polite"></div>
     </main>
     <script>
       const video = document.getElementById('video');
@@ -55,6 +60,7 @@
       const cameraStatus = document.getElementById('cameraStatus');
       const resolution = document.getElementById('resolution');
       const faceCount = document.getElementById('faceCount');
+      const alignedFaces = document.getElementById('alignedFaces');
       const frame = document.createElement('canvas');
       let latestDetection = null;
       let detectionTimer = null;
@@ -122,7 +128,8 @@
           if (!response.ok) throw new Error(result.detail || 'Detection failed');
           latestDetection = result;
           faceCount.textContent = result.faces.length;
-          drawBoxes(result.faces, result.width, result.height);
+          drawOverlay(result.faces, result.width, result.height);
+          drawAlignedFaces(result.faces);
           detectStatus.textContent = 'Live';
         } catch (error) {
           detectStatus.textContent = error.message;
@@ -140,9 +147,10 @@
         cameraStatus.textContent = 'Off';
         detectStatus.textContent = 'Waiting for camera';
         faceCount.textContent = '—';
+        alignedFaces.replaceChildren();
       }
 
-      function drawBoxes(faces, imageWidth, imageHeight) {
+      function drawOverlay(faces, imageWidth, imageHeight) {
         overlay.width = video.clientWidth;
         overlay.height = video.clientHeight;
         const context = overlay.getContext('2d');
@@ -153,19 +161,42 @@
         context.clearRect(0, 0, overlay.width, overlay.height);
         context.strokeStyle = '#00ff66';
         context.lineWidth = 2;
-        faces.forEach(({ box, confidence }) => {
+        faces.forEach(({ box, confidence, landmarks }) => {
           const x = overlay.width - (offsetX + (box.x + box.width) * scale);
           const y = offsetY + box.y * scale;
           context.strokeRect(x, y, box.width * scale, box.height * scale);
           context.fillStyle = '#00ff66';
           context.font = '13px system-ui';
           context.fillText(`${Math.round(confidence * 100)}%`, x, Math.max(14, y - 5));
+
+          context.fillStyle = '#ff4fa3';
+          landmarks.forEach((landmark) => {
+            const landmarkX = overlay.width - (offsetX + landmark.x * scale);
+            const landmarkY = offsetY + landmark.y * scale;
+            context.beginPath();
+            context.arc(landmarkX, landmarkY, 3, 0, Math.PI * 2);
+            context.fill();
+          });
         });
+      }
+
+      function drawAlignedFaces(faces) {
+        const items = faces.map(({ aligned }, index) => {
+          const figure = document.createElement('figure');
+          const image = document.createElement('img');
+          const caption = document.createElement('figcaption');
+          image.src = aligned;
+          image.alt = `Aligned face ${index + 1}`;
+          caption.textContent = `Aligned face ${index + 1}`;
+          figure.append(image, caption);
+          return figure;
+        });
+        alignedFaces.replaceChildren(...items);
       }
 
       window.addEventListener('resize', () => {
         if (latestDetection) {
-          drawBoxes(latestDetection.faces, latestDetection.width, latestDetection.height);
+          drawOverlay(latestDetection.faces, latestDetection.width, latestDetection.height);
         }
       });
     </script>
