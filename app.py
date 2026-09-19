@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent
 MODEL_INPUT_SIZE = (112, 112)
+MODEL_INPUT_MEAN = 127.5
+MODEL_INPUT_STD = 127.5
 app = FastAPI(title="Facial Recognition Prototype")
 app.mount("/assets", StaticFiles(directory=ROOT / "assets"), name="assets")
 face_app: FaceAnalysis | None = None
@@ -52,6 +54,21 @@ def align_face(image: np.ndarray, landmarks: np.ndarray) -> np.ndarray:
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=0,
     )
+
+
+def prepare_model_input(aligned_face: np.ndarray) -> np.ndarray:
+    """Convert an aligned OpenCV image into a normalized NCHW RGB tensor."""
+    if aligned_face.shape[:2] != MODEL_INPUT_SIZE[::-1]:
+        aligned_face = cv2.resize(
+            aligned_face,
+            MODEL_INPUT_SIZE,
+            interpolation=cv2.INTER_LINEAR,
+        )
+
+    rgb_face = cv2.cvtColor(aligned_face, cv2.COLOR_BGR2RGB)
+    normalized = (rgb_face.astype(np.float32) - MODEL_INPUT_MEAN) / MODEL_INPUT_STD
+    chw = np.transpose(normalized, (2, 0, 1))
+    return np.ascontiguousarray(chw[np.newaxis, ...], dtype=np.float32)
 
 
 def get_face_app() -> FaceAnalysis:
@@ -91,6 +108,7 @@ def detect(request: ImageRequest) -> dict:
             x1, y1, x2, y2 = [round(float(value)) for value in face.bbox]
             landmarks = np.asarray(face.kps, dtype=np.float32)
             aligned = align_face(image, landmarks)
+            model_input = prepare_model_input(aligned)
             results.append({
                 "box": {"x": x1, "y": y1, "width": x2 - x1, "height": y2 - y1},
                 "confidence": round(float(face.det_score), 3),
@@ -99,12 +117,19 @@ def detect(request: ImageRequest) -> dict:
                     for x, y in landmarks
                 ],
                 "aligned": encode_jpeg(aligned),
+                "tensor_shape": list(model_input.shape),
             })
         return {
             "faces": results,
             "width": image.shape[1],
             "height": image.shape[0],
-            "model_input": {"width": MODEL_INPUT_SIZE[0], "height": MODEL_INPUT_SIZE[1]},
+            "model_input": {
+                "shape": [1, 3, MODEL_INPUT_SIZE[1], MODEL_INPUT_SIZE[0]],
+                "layout": "NCHW",
+                "color_order": "RGB",
+                "dtype": "float32",
+                "normalization": "(pixel - 127.5) / 127.5",
+            },
         }
     except Exception as error:
         logger.exception("Face detection failed")
