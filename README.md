@@ -1,11 +1,14 @@
-### To Build and Run
+## Build and run
+
+```sh
 docker build -f docker/Dockerfile -t insightface .
-docker run --rm -p 8000:8000 -v insightface-models:/opt/insightface insightface
+docker run --rm -p 8000:8000 insightface
+```
 
-Open http://localhost:8000 and click **Start camera**, then **Detect faces**. The first detection downloads the InsightFace model pack into the mounted volume.
+Open [http://localhost:8000](http://localhost:8000).
 
-### To persist downloaded models
-docker run --rm \
-  -p 8000:8000 \
-  -v insightface-models:/opt/insightface \
-  insightface
+## Live updates
+
+```sh
+docker run --rm -p 8000:8000 -v "$PWD":/app insightface uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+```
