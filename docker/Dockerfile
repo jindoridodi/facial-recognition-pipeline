@@ -7,7 +7,8 @@ ARG INSIGHTFACE_REF=master
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    INSIGHTFACE_HOME=/opt/insightface
+    INSIGHTFACE_HOME=/opt/insightface \
+    EMBEDDING_DB_PATH=/data/embeddings.sqlite3
 
 # build-essential and cmake are required to build InsightFace's Python package.
 # libgl1 and libglib2.0-0 provide OpenCV's common runtime dependencies.
@@ -35,12 +36,13 @@ COPY app.py index.html /app/
 COPY facial_pipeline /app/facial_pipeline
 COPY assets /app/assets
 
-RUN mkdir -p "${INSIGHTFACE_HOME}"
+RUN mkdir -p "${INSIGHTFACE_HOME}" /data
 
 WORKDIR /app
 
 # Persist downloaded model packs by mounting a volume at /opt/insightface.
 VOLUME ["/opt/insightface"]
+VOLUME ["/data"]
 
 EXPOSE 8000
 

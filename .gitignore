@@ -209,6 +209,10 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# Local biometric embedding storage
+data/*.sqlite3
+data/*.sqlite3-*
+
 # Marimo
 marimo/_static/
 marimo/_lsp/

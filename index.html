@@ -46,6 +46,7 @@
         <span>Camera: <strong id="cameraStatus">Off</strong></span>
         <span>Resolution: <strong id="resolution">—</strong></span>
         <span>Faces: <strong id="faceCount">—</strong></span>
+        <span>Embedding: <strong id="embeddingStatus">—</strong></span>
         <span>Detection: <strong id="detectStatus">Waiting for camera</strong></span>
       </div>
       <div class="aligned" id="alignedFaces" aria-live="polite"></div>
@@ -60,6 +61,7 @@
       const cameraStatus = document.getElementById('cameraStatus');
       const resolution = document.getElementById('resolution');
       const faceCount = document.getElementById('faceCount');
+      const embeddingStatus = document.getElementById('embeddingStatus');
       const alignedFaces = document.getElementById('alignedFaces');
       const frame = document.createElement('canvas');
       let latestDetection = null;
@@ -128,6 +130,9 @@
           if (!response.ok) throw new Error(result.detail || 'Detection failed');
           latestDetection = result;
           faceCount.textContent = result.faces.length;
+          embeddingStatus.textContent = result.faces.length
+            ? `${result.faces[0].embedding.dimension}D normalized`
+            : '—';
           drawOverlay(result.faces, result.width, result.height);
           drawAlignedFaces(result.faces);
           detectStatus.textContent = 'Live';
@@ -147,6 +152,7 @@
         cameraStatus.textContent = 'Off';
         detectStatus.textContent = 'Waiting for camera';
         faceCount.textContent = '—';
+        embeddingStatus.textContent = '—';
         alignedFaces.replaceChildren();
       }
 
