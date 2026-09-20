@@ -32,6 +32,7 @@ RUN python -m pip install --upgrade pip setuptools wheel \
         uvicorn
 
 COPY app.py index.html /app/
+COPY facial_pipeline /app/facial_pipeline
 COPY assets /app/assets
 
 RUN mkdir -p "${INSIGHTFACE_HOME}"

@@ -17,6 +17,18 @@ The API response from `POST /api/detect` includes `landmarks` and an `aligned`
 JPEG data URL for each face. Recognition and identity matching are intentionally
 not part of this stage.
 
+## Project structure
+
+```text
+app.py                         FastAPI application assembly
+facial_pipeline/
+  config.py                    Model and path configuration
+  schemas.py                   API request models
+  image_ops.py                 Decode, align, normalize, and reshape operations
+  service.py                   InsightFace loading and pipeline orchestration
+  routes.py                    API endpoints under `/api`
+```
+
 ## Live updates
 
 ```sh
