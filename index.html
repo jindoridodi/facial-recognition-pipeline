@@ -27,9 +27,17 @@
       .info strong { color: #222; }
       .aligned { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
       .aligned:empty { display: none; }
-      .aligned figure { margin: 0; }
+      .aligned figure { width: 220px; margin: 0; padding: 12px; background: rgba(255, 255, 255, .8); border: 1px solid #ddd; border-radius: 8px; }
       .aligned img { display: block; width: 112px; height: 112px; border-radius: 6px; }
-      .aligned figcaption { margin-top: 4px; color: #555; font-size: 12px; text-align: center; }
+      .aligned figcaption { margin-top: 6px; color: #555; font-size: 12px; }
+      .face-identity { min-height: 20px; margin-top: 6px; color: #222; font-weight: 600; }
+      .enrollment-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 10px; }
+      .enrollment-form label { grid-column: 1 / -1; color: #555; font-size: 12px; }
+      .enrollment-form input { min-width: 0; padding: 9px 10px; border: 1px solid #bbb; border-radius: 4px; font: inherit; }
+      .enrollment-form input:focus { border-color: #ff4fa3; outline: 2px solid rgba(255, 79, 163, .2); }
+      .save-status { grid-column: 1 / -1; min-height: 18px; color: #555; font-size: 12px; }
+      .save-status.error { color: #b00020; }
+      .save-status.success { color: #087f38; }
     </style>
   </head>
   <body>
@@ -66,9 +74,15 @@
       const frame = document.createElement('canvas');
       let latestDetection = null;
       let detectionTimer = null;
+      let detectionInFlight = false;
+      let enrollmentInFlight = false;
 
       function scheduleDetection(delay = 0) {
-        detectionTimer = setTimeout(runDetection, delay);
+        clearTimeout(detectionTimer);
+        detectionTimer = setTimeout(() => {
+          detectionTimer = null;
+          runDetection();
+        }, delay);
       }
 
       start.addEventListener('click', async () => {
@@ -115,16 +129,22 @@
           scheduleDetection(50);
           return;
         }
+        if (detectionInFlight || enrollmentInFlight) {
+          scheduleDetection(50);
+          return;
+        }
 
         frame.width = video.videoWidth;
         frame.height = video.videoHeight;
         frame.getContext('2d').drawImage(video, 0, 0, frame.width, frame.height);
+        const capturedImage = frame.toDataURL('image/jpeg', 0.8);
+        detectionInFlight = true;
 
         try {
           const response = await fetch('/api/detect', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: frame.toDataURL('image/jpeg', 0.8) })
+            body: JSON.stringify({ image: capturedImage })
           });
           const result = await response.json();
           if (!response.ok) throw new Error(result.detail || 'Detection failed');
@@ -134,20 +154,26 @@
             ? `${result.faces[0].embedding.dimension}D normalized`
             : '—';
           drawOverlay(result.faces, result.width, result.height);
-          drawAlignedFaces(result.faces);
+          if (!isEnrollmentLocked()) {
+            drawAlignedFaces(result.faces, capturedImage);
+          }
           detectStatus.textContent = 'Live';
         } catch (error) {
           detectStatus.textContent = error.message;
         } finally {
+          detectionInFlight = false;
           // Keep one request in flight and begin the next detection immediately.
-          if (video.srcObject) scheduleDetection();
+          if (video.srcObject && !enrollmentInFlight) scheduleDetection();
         }
       }
 
       function stopDetection() {
         clearTimeout(detectionTimer);
+        detectionTimer = null;
         video.srcObject = null;
         latestDetection = null;
+        detectionInFlight = false;
+        enrollmentInFlight = false;
         overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
         cameraStatus.textContent = 'Off';
         detectStatus.textContent = 'Waiting for camera';
@@ -167,13 +193,27 @@
         context.clearRect(0, 0, overlay.width, overlay.height);
         context.strokeStyle = '#00ff66';
         context.lineWidth = 2;
-        faces.forEach(({ box, confidence, landmarks }) => {
+        faces.forEach(({ box, confidence, landmarks, identity }) => {
           const x = overlay.width - (offsetX + (box.x + box.width) * scale);
           const y = offsetY + box.y * scale;
-          context.strokeRect(x, y, box.width * scale, box.height * scale);
+          const boxWidth = box.width * scale;
+          const boxHeight = box.height * scale;
+          context.strokeRect(x, y, boxWidth, boxHeight);
           context.fillStyle = '#00ff66';
           context.font = '13px system-ui';
           context.fillText(`${Math.round(confidence * 100)}%`, x, Math.max(14, y - 5));
+
+          if (identity?.name) {
+            context.font = '600 14px system-ui';
+            const label = identity.name;
+            const labelWidth = context.measureText(label).width;
+            const labelX = Math.max(4, Math.min(x, overlay.width - labelWidth - 8));
+            const labelY = Math.min(overlay.height - 5, y + boxHeight + 18);
+            context.fillStyle = 'rgba(0, 0, 0, .72)';
+            context.fillRect(labelX - 4, labelY - 15, labelWidth + 8, 20);
+            context.fillStyle = '#00ff66';
+            context.fillText(label, labelX, labelY);
+          }
 
           context.fillStyle = '#ff4fa3';
           landmarks.forEach((landmark) => {
@@ -186,18 +226,120 @@
         });
       }
 
-      function drawAlignedFaces(faces) {
-        const items = faces.map(({ aligned }, index) => {
+      function isEnrollmentLocked() {
+        if (enrollmentInFlight || alignedFaces.querySelector('input:focus')) return true;
+        return Array.from(alignedFaces.querySelectorAll('input')).some((input) => input.value.length > 0);
+      }
+
+      function drawAlignedFaces(faces, snapshotImage) {
+        const items = faces.map((face, index) => {
           const figure = document.createElement('figure');
           const image = document.createElement('img');
           const caption = document.createElement('figcaption');
-          image.src = aligned;
+          const identity = document.createElement('div');
+          const form = document.createElement('form');
+          const label = document.createElement('label');
+          const input = document.createElement('input');
+          const save = document.createElement('button');
+          const saveStatus = document.createElement('div');
+
+          image.src = face.aligned;
           image.alt = `Aligned face ${index + 1}`;
           caption.textContent = `Aligned face ${index + 1}`;
-          figure.append(image, caption);
+          identity.className = 'face-identity';
+          identity.textContent = face.identity?.name || 'Not recognized';
+
+          form.className = 'enrollment-form';
+          label.htmlFor = `face-name-${index}`;
+          label.textContent = face.identity?.name ? 'Save another sample or use a new name' : 'Name this face';
+          input.id = `face-name-${index}`;
+          input.name = 'name';
+          input.type = 'text';
+          input.maxLength = 128;
+          input.autocomplete = 'off';
+          input.placeholder = 'Enter a name';
+          save.type = 'submit';
+          save.textContent = 'Save';
+          saveStatus.className = 'save-status';
+          saveStatus.setAttribute('role', 'status');
+          form.append(label, input, save, saveStatus);
+          form.addEventListener('submit', (event) => {
+            enrollFace({ event, face, faceIndex: index, snapshotImage, input, save, saveStatus, identity });
+          });
+
+          figure.append(image, caption, identity, form);
           return figure;
         });
         alignedFaces.replaceChildren(...items);
+      }
+
+      async function enrollFace({ event, face, faceIndex, snapshotImage, input, save, saveStatus, identity }) {
+        event.preventDefault();
+        const name = input.value.trim();
+        if (!name) {
+          saveStatus.className = 'save-status error';
+          saveStatus.textContent = 'Enter a name first.';
+          input.focus();
+          return;
+        }
+        if (enrollmentInFlight) return;
+
+        enrollmentInFlight = true;
+        clearTimeout(detectionTimer);
+        detectionTimer = null;
+        alignedFaces.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+        input.disabled = true;
+        save.disabled = true;
+        save.textContent = 'Saving…';
+        saveStatus.className = 'save-status';
+        saveStatus.textContent = '';
+
+        try {
+          const response = await fetch('/api/enroll', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image: snapshotImage,
+              subject_id: name,
+              face_index: faceIndex
+            })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(apiErrorMessage(result, 'Could not save this face'));
+
+          const optimisticIdentity = {
+            name: result.name,
+            subject_id: result.subject_id,
+            embedding_id: result.embedding_id,
+            similarity: 1
+          };
+          face.identity = optimisticIdentity;
+          if (latestDetection?.faces[faceIndex]) {
+            latestDetection.faces[faceIndex].identity = optimisticIdentity;
+            drawOverlay(latestDetection.faces, latestDetection.width, latestDetection.height);
+          }
+          identity.textContent = result.name;
+          input.value = '';
+          saveStatus.className = 'save-status success';
+          saveStatus.textContent = `${result.name} saved.`;
+        } catch (error) {
+          saveStatus.className = 'save-status error';
+          saveStatus.textContent = error.message;
+        } finally {
+          enrollmentInFlight = false;
+          input.disabled = false;
+          alignedFaces.querySelectorAll('button').forEach((button) => { button.disabled = false; });
+          save.textContent = 'Save';
+          if (video.srcObject && !detectionInFlight) scheduleDetection();
+        }
+      }
+
+      function apiErrorMessage(result, fallback) {
+        if (typeof result?.detail === 'string') return result.detail;
+        if (Array.isArray(result?.detail)) {
+          return result.detail.map((item) => item.msg || String(item)).join('; ');
+        }
+        return fallback;
       }
 
       window.addEventListener('resize', () => {

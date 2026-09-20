@@ -2,7 +2,10 @@
 
 ```sh
 docker build -f docker/Dockerfile -t insightface .
-docker run --rm -p 8000:8000 insightface
+docker run --rm -p 8000:8000 \
+  -v insightface-models:/opt/insightface \
+  -v facial-embeddings:/data \
+  insightface
 ```
 
 Open [http://localhost:8000](http://localhost:8000).
@@ -13,22 +16,34 @@ uses an affine warp to create the recognition model's normalized 112×112 input.
 The aligned OpenCV image is converted from BGR to RGB, normalized with
 `(pixel - 127.5) / 127.5`, and rearranged from HWC to a contiguous float32 NCHW
 tensor with shape `[1, 3, 112, 112]` for the future recognition stage.
-The API response from `POST /api/detect` includes `landmarks` and an `aligned`
-JPEG data URL for each face. InsightFace also produces a 512-dimensional,
-L2-normalized ArcFace embedding as a private NumPy `float32` array. Detection
-responses expose only embedding metadata, never the vector values.
+The API response from `POST /api/detect` includes `landmarks`, an `aligned`
+JPEG data URL, and an `identity` for each face. InsightFace also produces a
+512-dimensional, L2-normalized ArcFace embedding as a private NumPy `float32`
+array. Detection responses expose only embedding metadata, never vector values.
+An unmatched face has an `identity` of `null`; a match includes the saved name,
+embedding ID, and cosine similarity.
 
 ## Embedding enrollment
 
-Persist an embedding only through the explicit enrollment endpoint. The image
-must contain exactly one face, and `subject_id` is trimmed and limited to 128
-characters.
+Use the name field beneath any detected face in the browser to save it. The UI
+enrolls the selected face from the exact frame shown in that face card and then
+displays recognized names beneath their camera boxes. Saving the same name
+again adds another sample, which can improve recognition across different
+angles and lighting.
+
+Embeddings can also be persisted through the enrollment endpoint. `subject_id`
+is the person's display name; it is trimmed and limited to 128 characters. If
+an image contains multiple faces, pass the zero-based `face_index` from the
+detection order:
 
 ```sh
 curl -X POST http://localhost:8000/api/enroll \
   -H 'Content-Type: application/json' \
-  -d '{"subject_id":"person-123","image":"data:image/jpeg;base64,..."}'
+  -d '{"subject_id":"Ada Lovelace","face_index":0,"image":"data:image/jpeg;base64,..."}'
 ```
+
+For backward compatibility, `face_index` may be omitted when the image contains
+exactly one face.
 
 The response contains an `embedding_id` UUID plus non-vector metadata. Delete a
 stored sample with:
@@ -44,10 +59,14 @@ records across containers. Records include the `buffalo_l` model name and an
 embedding schema version because vectors from different recognition models are
 not directly comparable.
 
+Live recognition uses cosine similarity and accepts the closest compatible
+saved embedding at a default threshold of `0.4`. Set `FACE_MATCH_THRESHOLD` to
+a value from `-1.0` to `1.0` to tune it; raising the threshold reduces false
+matches but may leave more faces unidentified.
+
 This prototype has no API authentication or database encryption. Facial
 embeddings are biometric data; expose these endpoints only in a trusted local
-environment. Identity matching and similarity thresholds are intentionally not
-part of this stage.
+environment.
 
 ## Project structure
 
@@ -59,6 +78,7 @@ facial_pipeline/
   image_ops.py                 Decode, align, normalize, and reshape operations
   embeddings.py                Embedding validation and metadata
   embedding_store.py           SQLite embedding persistence
+  matching.py                  Cosine matching and public identity metadata
   models.py                    Private pipeline result types
   service.py                   InsightFace loading and pipeline orchestration
   routes.py                    API endpoints under `/api`
@@ -77,3 +97,5 @@ docker run --rm -p 8000:8000 \
 The `/app` bind mount applies source changes immediately, and the named
 `insightface-models` volume keeps downloaded model packs between container
 runs. The `facial-embeddings` volume keeps the SQLite enrollment database.
+Reuse that named volume on later `docker run` commands to retain names and
+facial data after replacing a container.

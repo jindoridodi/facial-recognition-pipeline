@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 
 
 class ImageRequest(BaseModel):
@@ -12,3 +12,4 @@ class EnrollmentRequest(ImageRequest):
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
     ]
+    face_index: int | None = Field(default=None, ge=0)

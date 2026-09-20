@@ -118,6 +118,19 @@ class EmbeddingStore:
         if row is None:
             return None
 
+        return self._record_from_row(row)
+
+    def list_all(self) -> list[EmbeddingRecord]:
+        with self._connect() as connection:
+            self._initialize(connection)
+            rows = connection.execute(
+                "SELECT * FROM embeddings "
+                "ORDER BY created_at DESC, embedding_id DESC"
+            ).fetchall()
+        return [self._record_from_row(row) for row in rows]
+
+    @staticmethod
+    def _record_from_row(row: sqlite3.Row) -> EmbeddingRecord:
         embedding = np.frombuffer(row["embedding"], dtype="<f4").copy()
         if embedding.shape != (row["dimension"],):
             raise ValueError("Stored embedding size does not match its metadata")

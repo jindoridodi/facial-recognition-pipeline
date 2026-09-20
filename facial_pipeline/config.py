@@ -18,3 +18,7 @@ EMBEDDING_SCHEMA_VERSION = 1
 EMBEDDING_DB_PATH = Path(
     os.environ.get("EMBEDDING_DB_PATH", PROJECT_ROOT / "data" / "embeddings.sqlite3")
 )
+
+FACE_MATCH_THRESHOLD = float(os.environ.get("FACE_MATCH_THRESHOLD", "0.4"))
+if not -1.0 <= FACE_MATCH_THRESHOLD <= 1.0:
+    raise ValueError("FACE_MATCH_THRESHOLD must be between -1.0 and 1.0")
