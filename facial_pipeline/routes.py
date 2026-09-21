@@ -24,6 +24,20 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.post("/model/load")
+def load_model() -> dict[str, str]:
+    """Download and initialize the configured model on page load."""
+    try:
+        pipeline.load()
+    except Exception as error:
+        logger.exception("Model loading failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The facial recognition model could not be downloaded",
+        ) from error
+    return {"status": "ready"}
+
+
 @router.post("/detect")
 def detect(request: ImageRequest) -> dict:
     """Detect faces and attach any compatible saved identity to each response face."""

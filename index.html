@@ -26,6 +26,7 @@
       <span>Faces: <strong id="faceCount">—</strong></span>
       <span>Embedding: <strong id="embeddingStatus">—</strong></span>
       <span>Detection: <strong id="detectStatus">Waiting for camera</strong></span>
+      <span><strong id="modelStatus" role="status" aria-live="polite">Model is downloading…</strong></span>
     </div>
     <div class="saved-face-actions">
       <button class="clear-faces" id="clearFaces" type="button">Clear saved faces</button>
@@ -45,6 +46,7 @@
     const resolution = document.getElementById('resolution');
     const faceCount = document.getElementById('faceCount');
     const embeddingStatus = document.getElementById('embeddingStatus');
+    const modelStatus = document.getElementById('modelStatus');
     const clearFaces = document.getElementById('clearFaces');
     const clearFacesStatus = document.getElementById('clearFacesStatus');
     const alignedFaces = document.getElementById('alignedFaces');
@@ -56,6 +58,23 @@
     let enrollmentInFlight = false;
     let clearingFacesInFlight = false;
     let savedFacesVersion = 0;
+
+    async function loadModel() {
+      // Start the potentially slow download immediately instead of waiting for the camera.
+      modelStatus.textContent = 'Model is downloading…';
+      try {
+        const response = await fetch('/api/model/load', { method: 'POST' });
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(apiErrorMessage(result, 'Model download failed'));
+        }
+        modelStatus.textContent = '';
+      } catch (error) {
+        modelStatus.textContent = error.message;
+      }
+    }
+
+    loadModel();
 
     function scheduleDetection(delay = 0) {
       // Coalesce retry requests so the polling loop owns only one pending timer.

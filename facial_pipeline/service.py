@@ -1,6 +1,7 @@
 """Orchestrate InsightFace detection, alignment, embedding, and response shaping."""
 
 import logging
+from threading import Lock
 from typing import Any
 
 import numpy as np
@@ -31,19 +32,27 @@ class FacialLandmarkPipeline:
     def __init__(self) -> None:
         """Start without a model so health checks and application startup stay lightweight."""
         self._analyzer: FaceAnalysis | None = None
+        self._analyzer_lock = Lock()
 
     def _get_analyzer(self) -> FaceAnalysis:
         """Load and cache the configured InsightFace analyzer on first image request."""
         if self._analyzer is None:
-            # Model initialization may download/load weights, so do it once per process.
-            logger.info("Loading InsightFace models...")
-            self._analyzer = FaceAnalysis(
-                name=MODEL_NAME,
-                providers=MODEL_PROVIDERS,
-            )
-            self._analyzer.prepare(ctx_id=0, det_size=DETECTION_INPUT_SIZE)
-            logger.info("InsightFace ready")
+            # Warm-up and detection can arrive together, so initialize only once.
+            with self._analyzer_lock:
+                if self._analyzer is None:
+                    logger.info("Loading InsightFace models...")
+                    analyzer = FaceAnalysis(
+                        name=MODEL_NAME,
+                        providers=MODEL_PROVIDERS,
+                    )
+                    analyzer.prepare(ctx_id=0, det_size=DETECTION_INPUT_SIZE)
+                    self._analyzer = analyzer
+                    logger.info("InsightFace ready")
         return self._analyzer
+
+    def load(self) -> None:
+        """Download, initialize, and cache the model before camera detection starts."""
+        self._get_analyzer()
 
     def analyze(self, data_url: str) -> ProcessedImage:
         """Run detection and prepare all per-face values needed by later stages."""
