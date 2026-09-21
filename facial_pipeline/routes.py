@@ -87,6 +87,22 @@ def enroll(request: EnrollmentRequest) -> dict[str, object]:
 
 
 @router.delete(
+    "/embeddings",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_all_embeddings() -> Response:
+    try:
+        embedding_store.delete_all()
+    except Exception as error:
+        logger.exception("Bulk embedding deletion failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Saved faces could not be cleared",
+        ) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
     "/embeddings/{embedding_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )

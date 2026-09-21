@@ -26,8 +26,8 @@ embedding ID, and cosine similarity.
 ## Embedding enrollment
 
 Use the name field beneath any detected face in the browser to save it. The UI
-enrolls the selected face from the exact frame shown in that face card and then
-displays recognized names beneath their camera boxes. Saving the same name
+enrolls the selected face from the exact frame shown in that face preview and
+then displays recognized names beneath their camera boxes. Saving the same name
 again adds another sample, which can improve recognition across different
 angles and lighting.
 
@@ -50,6 +50,13 @@ stored sample with:
 
 ```sh
 curl -X DELETE http://localhost:8000/api/embeddings/EMBEDDING_ID
+```
+
+Use the **Clear saved faces** button in the browser, or delete every saved
+embedding through the API:
+
+```sh
+curl -X DELETE http://localhost:8000/api/embeddings
 ```
 
 Embeddings are stored as little-endian float32 BLOBs in SQLite. Local runs use

@@ -155,6 +155,12 @@ class EmbeddingStore:
             )
         return cursor.rowcount == 1
 
+    def delete_all(self) -> int:
+        with self._connect() as connection:
+            self._initialize(connection)
+            cursor = connection.execute("DELETE FROM embeddings")
+        return cursor.rowcount
+
     @staticmethod
     def _validated_vector(embedding: np.ndarray) -> np.ndarray:
         vector = np.asarray(embedding, dtype=np.float32)

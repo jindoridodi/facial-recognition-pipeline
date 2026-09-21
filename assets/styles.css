@@ -86,6 +86,33 @@ button:disabled {
   color: #222;
 }
 
+.saved-face-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.clear-faces {
+  color: #a32121;
+  background: transparent;
+  border: 1px solid #a32121;
+  border-radius: 4px;
+}
+
+.clear-status {
+  color: #555;
+  font-size: 12px;
+}
+
+.clear-status.error {
+  color: #b00020;
+}
+
+.clear-status.success {
+  color: #087f38;
+}
+
 .aligned {
   display: grid;
   gap: 20px;

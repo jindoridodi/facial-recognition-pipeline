@@ -27,6 +27,10 @@
       <span>Embedding: <strong id="embeddingStatus">—</strong></span>
       <span>Detection: <strong id="detectStatus">Waiting for camera</strong></span>
     </div>
+    <div class="saved-face-actions">
+      <button class="clear-faces" id="clearFaces" type="button">Clear saved faces</button>
+      <span class="clear-status" id="clearFacesStatus" role="status"></span>
+    </div>
     <div class="aligned" id="alignedFaces" aria-live="polite"></div>
   </main>
   <script>
@@ -40,12 +44,16 @@
     const resolution = document.getElementById('resolution');
     const faceCount = document.getElementById('faceCount');
     const embeddingStatus = document.getElementById('embeddingStatus');
+    const clearFaces = document.getElementById('clearFaces');
+    const clearFacesStatus = document.getElementById('clearFacesStatus');
     const alignedFaces = document.getElementById('alignedFaces');
     const frame = document.createElement('canvas');
     let latestDetection = null;
     let detectionTimer = null;
     let detectionInFlight = false;
     let enrollmentInFlight = false;
+    let clearingFacesInFlight = false;
+    let savedFacesVersion = 0;
 
     function scheduleDetection(delay = 0) {
       clearTimeout(detectionTimer);
@@ -94,12 +102,61 @@
       }
     });
 
+    clearFaces.addEventListener('click', async () => {
+      if (enrollmentInFlight) {
+        clearFacesStatus.className = 'clear-status error';
+        clearFacesStatus.textContent = 'Wait for the current face to finish saving.';
+        return;
+      }
+      const confirmed = window.confirm(
+        'Clear every saved face and name? This cannot be undone.'
+      );
+      if (!confirmed) return;
+
+      clearingFacesInFlight = true;
+      clearTimeout(detectionTimer);
+      detectionTimer = null;
+      clearFaces.disabled = true;
+      clearFaces.textContent = 'Clearing…';
+      alignedFaces.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+      clearFacesStatus.className = 'clear-status';
+      clearFacesStatus.textContent = '';
+
+      try {
+        const response = await fetch('/api/embeddings', { method: 'DELETE' });
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(apiErrorMessage(result, 'Could not clear saved faces'));
+        }
+
+        savedFacesVersion += 1;
+        if (latestDetection) {
+          latestDetection.faces.forEach((face) => { face.identity = null; });
+          drawOverlay(latestDetection.faces, latestDetection.width, latestDetection.height);
+        }
+        alignedFaces.querySelectorAll('.face-identity').forEach((identity) => {
+          identity.textContent = 'Not recognized';
+        });
+        clearFacesStatus.className = 'clear-status success';
+        clearFacesStatus.textContent = 'All saved faces cleared.';
+      } catch (error) {
+        clearFacesStatus.className = 'clear-status error';
+        clearFacesStatus.textContent = error.message;
+      } finally {
+        clearingFacesInFlight = false;
+        clearFaces.disabled = false;
+        clearFaces.textContent = 'Clear saved faces';
+        alignedFaces.querySelectorAll('button').forEach((button) => { button.disabled = false; });
+        if (video.srcObject && !detectionInFlight) scheduleDetection();
+      }
+    });
+
     async function runDetection() {
       if (!video.srcObject || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         scheduleDetection(50);
         return;
       }
-      if (detectionInFlight || enrollmentInFlight) {
+      if (detectionInFlight || enrollmentInFlight || clearingFacesInFlight) {
         scheduleDetection(50);
         return;
       }
@@ -108,6 +165,7 @@
       frame.height = video.videoHeight;
       frame.getContext('2d').drawImage(video, 0, 0, frame.width, frame.height);
       const capturedImage = frame.toDataURL('image/jpeg', 0.8);
+      const recognitionVersion = savedFacesVersion;
       detectionInFlight = true;
 
       try {
@@ -118,6 +176,9 @@
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.detail || 'Detection failed');
+        if (recognitionVersion !== savedFacesVersion) {
+          result.faces.forEach((face) => { face.identity = null; });
+        }
         latestDetection = result;
         faceCount.textContent = result.faces.length;
         embeddingStatus.textContent = result.faces.length
@@ -133,7 +194,7 @@
       } finally {
         detectionInFlight = false;
         // Keep one request in flight and begin the next detection immediately.
-        if (video.srcObject && !enrollmentInFlight) scheduleDetection();
+        if (video.srcObject && !enrollmentInFlight && !clearingFacesInFlight) scheduleDetection();
       }
     }
 
@@ -256,6 +317,7 @@
       enrollmentInFlight = true;
       clearTimeout(detectionTimer);
       detectionTimer = null;
+      clearFaces.disabled = true;
       alignedFaces.querySelectorAll('button').forEach((button) => { button.disabled = true; });
       input.disabled = true;
       save.disabled = true;
@@ -296,6 +358,7 @@
         saveStatus.textContent = error.message;
       } finally {
         enrollmentInFlight = false;
+        clearFaces.disabled = false;
         input.disabled = false;
         alignedFaces.querySelectorAll('button').forEach((button) => { button.disabled = false; });
         save.textContent = 'Save';
