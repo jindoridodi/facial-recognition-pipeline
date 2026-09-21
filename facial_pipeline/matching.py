@@ -1,3 +1,5 @@
+"""Find compatible persisted embeddings that exceed a cosine-similarity threshold."""
+
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -13,10 +15,12 @@ from facial_pipeline.embedding_store import EmbeddingRecord
 
 @dataclass(frozen=True)
 class EmbeddingMatch:
+    """The winning enrollment record and its query similarity score."""
     record: EmbeddingRecord
     similarity: float
 
     def metadata(self) -> dict[str, object]:
+        """Return the match fields exposed as a detected face's identity."""
         return {
             "name": self.record.subject_id,
             "subject_id": self.record.subject_id,
@@ -40,6 +44,7 @@ def find_best_match(
     best_record: EmbeddingRecord | None = None
     best_similarity = -1.0
     for record in candidates:
+        # Embeddings from another model or schema share neither meaning nor scale.
         if (
             record.dimension != EMBEDDING_DIMENSION
             or record.model_name != MODEL_NAME
@@ -47,7 +52,7 @@ def find_best_match(
             or not record.normalized
         ):
             continue
-
+        # Both vectors are unit length, so their dot product is cosine similarity.
         similarity = float(np.dot(query, record.embedding))
         if similarity > best_similarity:
             best_record = record

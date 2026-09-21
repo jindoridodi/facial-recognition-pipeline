@@ -1,3 +1,5 @@
+"""Centralize model, vector-format, and environment-backed configuration."""
+
 import os
 from pathlib import Path
 

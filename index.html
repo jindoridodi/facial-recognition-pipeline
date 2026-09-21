@@ -33,6 +33,7 @@
     </div>
     <div class="aligned" id="alignedFaces" aria-live="polite"></div>
   </main>
+  <script src="/assets/face-tracker.js"></script>
   <script>
     const video = document.getElementById('video');
     const overlay = document.getElementById('overlay');
@@ -48,6 +49,7 @@
     const clearFacesStatus = document.getElementById('clearFacesStatus');
     const alignedFaces = document.getElementById('alignedFaces');
     const frame = document.createElement('canvas');
+    const faceTracker = new FaceTracker();
     let latestDetection = null;
     let detectionTimer = null;
     let detectionInFlight = false;
@@ -56,6 +58,7 @@
     let savedFacesVersion = 0;
 
     function scheduleDetection(delay = 0) {
+      // Coalesce retry requests so the polling loop owns only one pending timer.
       clearTimeout(detectionTimer);
       detectionTimer = setTimeout(() => {
         detectionTimer = null;
@@ -63,9 +66,11 @@
       }, delay);
     }
 
+    // Start camera capture and initialize a new tracker session when the user opts in.
     start.addEventListener('click', async () => {
       start.disabled = true;
       start.textContent = 'Starting…';
+      faceTracker.reset();
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'user' },
@@ -102,6 +107,7 @@
       }
     });
 
+    // Confirm and delete all enrollments while preventing conflicting UI operations.
     clearFaces.addEventListener('click', async () => {
       if (enrollmentInFlight) {
         clearFacesStatus.className = 'clear-status error';
@@ -129,7 +135,9 @@
           throw new Error(apiErrorMessage(result, 'Could not clear saved faces'));
         }
 
+        // This monotonically invalidates recognition results already in flight.
         savedFacesVersion += 1;
+        faceTracker.clearIdentities();
         if (latestDetection) {
           latestDetection.faces.forEach((face) => { face.identity = null; });
           drawOverlay(latestDetection.faces, latestDetection.width, latestDetection.height);
@@ -152,11 +160,13 @@
     });
 
     async function runDetection() {
+      // Capture a frame, obtain recognition results, and schedule the next polling cycle.
       if (!video.srcObject || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         scheduleDetection(50);
         return;
       }
       if (detectionInFlight || enrollmentInFlight || clearingFacesInFlight) {
+        // Do not replace the preview while a form refers to its captured frame.
         scheduleDetection(50);
         return;
       }
@@ -165,6 +175,7 @@
       frame.height = video.videoHeight;
       frame.getContext('2d').drawImage(video, 0, 0, frame.width, frame.height);
       const capturedImage = frame.toDataURL('image/jpeg', 0.8);
+      // Clearing enrollments while this request is pending must not restore stale names.
       const recognitionVersion = savedFacesVersion;
       detectionInFlight = true;
 
@@ -179,6 +190,7 @@
         if (recognitionVersion !== savedFacesVersion) {
           result.faces.forEach((face) => { face.identity = null; });
         }
+        result.faces = faceTracker.update(result.faces);
         latestDetection = result;
         faceCount.textContent = result.faces.length;
         embeddingStatus.textContent = result.faces.length
@@ -199,12 +211,14 @@
     }
 
     function stopDetection() {
+      // Reset camera-derived UI and tracking state after the media stream ends.
       clearTimeout(detectionTimer);
       detectionTimer = null;
       video.srcObject = null;
       latestDetection = null;
       detectionInFlight = false;
       enrollmentInFlight = false;
+      faceTracker.reset();
       overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
       cameraStatus.textContent = 'Off';
       detectStatus.textContent = 'Waiting for camera';
@@ -214,6 +228,7 @@
     }
 
     function drawOverlay(faces, imageWidth, imageHeight) {
+      // Render mirrored detection geometry over the cover-fitted camera preview.
       overlay.width = video.clientWidth;
       overlay.height = video.clientHeight;
       const context = overlay.getContext('2d');
@@ -258,12 +273,15 @@
     }
 
     function isEnrollmentLocked() {
+      // Detect whether replacing previews would interrupt an enrollment draft.
+      // Re-rendering would discard a typed name and break the preview/snapshot pairing.
       if (enrollmentInFlight || alignedFaces.querySelector('input:focus')) return true;
       return Array.from(alignedFaces.querySelectorAll('input')).some((input) => input.value.length > 0);
     }
 
     function drawAlignedFaces(faces, snapshotImage) {
-      const items = faces.map((face, index) => {
+      // Render one enrollment form per current track using this exact captured frame.
+      const items = faces.map((face) => {
         const figure = document.createElement('figure');
         const image = document.createElement('img');
         const caption = document.createElement('figcaption');
@@ -275,14 +293,14 @@
         const saveStatus = document.createElement('div');
 
         image.src = face.aligned;
-        image.alt = `Aligned face ${index + 1}`;
-        caption.textContent = `Aligned face ${index + 1}`;
+        image.alt = `Aligned face ${face.trackId}`;
+        caption.textContent = `Face ${face.trackId}`;
         identity.className = 'face-identity';
         identity.textContent = face.identity?.name || 'Not recognized';
 
         form.className = 'enrollment-form';
-        label.htmlFor = `face-name-${index}`;
-        input.id = `face-name-${index}`;
+        label.htmlFor = `face-name-${face.trackId}`;
+        input.id = `face-name-${face.trackId}`;
         input.name = 'name';
         input.type = 'text';
         input.maxLength = 128;
@@ -294,7 +312,8 @@
         saveStatus.setAttribute('role', 'status');
         form.append(label, input, save, saveStatus);
         form.addEventListener('submit', (event) => {
-          enrollFace({ event, face, faceIndex: index, snapshotImage, input, save, saveStatus, identity });
+          // Use this render's snapshot, not a later camera frame, for face_index accuracy.
+          enrollFace({ event, face, snapshotImage, input, save, saveStatus, identity });
         });
 
         figure.append(image, caption, identity, form);
@@ -303,7 +322,8 @@
       alignedFaces.replaceChildren(...items);
     }
 
-    async function enrollFace({ event, face, faceIndex, snapshotImage, input, save, saveStatus, identity }) {
+    async function enrollFace({ event, face, snapshotImage, input, save, saveStatus, identity }) {
+      // Persist the selected snapshot face and update its visible identity optimistically.
       event.preventDefault();
       const name = input.value.trim();
       if (!name) {
@@ -315,6 +335,7 @@
       if (enrollmentInFlight) return;
 
       enrollmentInFlight = true;
+      // Pause detection until enrollment finishes so the selected snapshot remains stable.
       clearTimeout(detectionTimer);
       detectionTimer = null;
       clearFaces.disabled = true;
@@ -332,7 +353,8 @@
           body: JSON.stringify({
             image: snapshotImage,
             subject_id: name,
-            face_index: faceIndex
+            // Track IDs are display-stable; the API needs this snapshot's detector index.
+            face_index: face.sourceIndex
           })
         });
         const result = await response.json();
@@ -345,8 +367,12 @@
           similarity: 1
         };
         face.identity = optimisticIdentity;
-        if (latestDetection?.faces[faceIndex]) {
-          latestDetection.faces[faceIndex].identity = optimisticIdentity;
+        faceTracker.setIdentity(face.trackId, optimisticIdentity);
+        const latestFace = latestDetection?.faces.find(
+          (candidate) => candidate.trackId === face.trackId
+        );
+        if (latestFace) {
+          latestFace.identity = optimisticIdentity;
           drawOverlay(latestDetection.faces, latestDetection.width, latestDetection.height);
         }
         identity.textContent = result.name;
@@ -367,6 +393,7 @@
     }
 
     function apiErrorMessage(result, fallback) {
+      // Convert FastAPI's string or validation-error response formats into UI text.
       if (typeof result?.detail === 'string') return result.detail;
       if (Array.isArray(result?.detail)) {
         return result.detail.map((item) => item.msg || String(item)).join('; ');
@@ -374,6 +401,7 @@
       return fallback;
     }
 
+    // Redraw because cover-fit offsets change whenever the preview size changes.
     window.addEventListener('resize', () => {
       if (latestDetection) {
         drawOverlay(latestDetection.faces, latestDetection.width, latestDetection.height);

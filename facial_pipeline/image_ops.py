@@ -1,3 +1,5 @@
+"""Decode, align, encode, and normalize images for the recognition model."""
+
 import base64
 
 import cv2
@@ -12,6 +14,8 @@ from facial_pipeline.config import (
 
 
 def decode_image(data_url: str) -> np.ndarray:
+    """Decode a base64 image payload into OpenCV's BGR pixel order."""
+    # Accept both browser data URLs and the bare base64 payload used by API clients.
     encoded = data_url.split(",", 1)[-1]
     image = cv2.imdecode(
         np.frombuffer(base64.b64decode(encoded), dtype=np.uint8),
@@ -23,6 +27,7 @@ def decode_image(data_url: str) -> np.ndarray:
 
 
 def encode_jpeg(image: np.ndarray) -> str:
+    """Encode an image as a browser-displayable JPEG data URL."""
     success, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 90])
     if not success:
         raise ValueError("The aligned face could not be encoded")
@@ -38,6 +43,7 @@ def align_face(image: np.ndarray, landmarks: np.ndarray) -> np.ndarray:
     transform = face_align.estimate_norm(
         landmarks,
         image_size=MODEL_INPUT_SIZE[0],
+        # ArcFace's five-point template makes embeddings comparable across poses.
         mode="arcface",
     )
     return cv2.warpAffine(
@@ -53,12 +59,14 @@ def align_face(image: np.ndarray, landmarks: np.ndarray) -> np.ndarray:
 def prepare_model_input(aligned_face: np.ndarray) -> np.ndarray:
     """Convert an aligned OpenCV image into a normalized NCHW RGB tensor."""
     if aligned_face.shape[:2] != MODEL_INPUT_SIZE[::-1]:
+        # Keep this helper safe for callers other than align_face.
         aligned_face = cv2.resize(
             aligned_face,
             MODEL_INPUT_SIZE,
             interpolation=cv2.INTER_LINEAR,
         )
 
+    # OpenCV decodes BGR, while the recognition model was trained on RGB inputs.
     rgb_face = cv2.cvtColor(aligned_face, cv2.COLOR_BGR2RGB)
     normalized = (rgb_face.astype(np.float32) - MODEL_INPUT_MEAN) / MODEL_INPUT_STD
     chw = np.transpose(normalized, (2, 0, 1))

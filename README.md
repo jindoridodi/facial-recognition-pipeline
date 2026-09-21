@@ -23,6 +23,12 @@ array. Detection responses expose only embedding metadata, never vector values.
 An unmatched face has an `identity` of `null`; a match includes the saved name,
 embedding ID, and cosine similarity.
 
+The browser assigns session-local track IDs using face position, motion, and
+recognized identity. Aligned previews remain in track order even if the model's
+per-frame detection order changes. Tracks survive five missed frames and reset
+when the camera restarts; the original per-frame index is retained privately in
+the browser so enrollment still selects the correct face from its exact image.
+
 ## Embedding enrollment
 
 Use the name field beneath any detected face in the browser to save it. The UI
@@ -79,6 +85,7 @@ environment.
 
 ```text
 app.py                         FastAPI application assembly
+assets/face-tracker.js         Browser-session face association and ordering
 facial_pipeline/
   config.py                    Model and path configuration
   schemas.py                   API request models

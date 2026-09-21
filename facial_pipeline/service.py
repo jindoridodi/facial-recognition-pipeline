@@ -1,3 +1,5 @@
+"""Orchestrate InsightFace detection, alignment, embedding, and response shaping."""
+
 import logging
 from typing import Any
 
@@ -24,11 +26,16 @@ logger = logging.getLogger(__name__)
 
 
 class FacialLandmarkPipeline:
+    """Lazily load InsightFace and convert camera images into private pipeline results."""
+
     def __init__(self) -> None:
+        """Start without a model so health checks and application startup stay lightweight."""
         self._analyzer: FaceAnalysis | None = None
 
     def _get_analyzer(self) -> FaceAnalysis:
+        """Load and cache the configured InsightFace analyzer on first image request."""
         if self._analyzer is None:
+            # Model initialization may download/load weights, so do it once per process.
             logger.info("Loading InsightFace models...")
             self._analyzer = FaceAnalysis(
                 name=MODEL_NAME,
@@ -39,6 +46,7 @@ class FacialLandmarkPipeline:
         return self._analyzer
 
     def analyze(self, data_url: str) -> ProcessedImage:
+        """Run detection and prepare all per-face values needed by later stages."""
         image = decode_image(data_url)
         faces = self._get_analyzer().get(image)
         results: list[ProcessedFace] = []
@@ -72,10 +80,12 @@ class FacialLandmarkPipeline:
         )
 
     def process(self, data_url: str) -> dict[str, Any]:
+        """Analyze one image and immediately convert its result to API response data."""
         return self.detection_response(self.analyze(data_url))
 
     @staticmethod
     def detection_response(result: ProcessedImage) -> dict[str, Any]:
+        """Serialize detection details while keeping raw embeddings private."""
         faces = []
         for face in result.faces:
             faces.append({

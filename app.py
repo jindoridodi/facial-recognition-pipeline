@@ -1,3 +1,5 @@
+"""Assemble the FastAPI application and serve its single-page client."""
+
 import logging
 
 from fastapi import FastAPI
@@ -17,4 +19,5 @@ app.include_router(api_router)
 
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
+    """Serve the browser client outside the generated API schema."""
     return FileResponse(PROJECT_ROOT / "index.html")

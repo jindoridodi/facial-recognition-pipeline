@@ -1,3 +1,5 @@
+"""Validate model embeddings before they enter persistence or matching code."""
+
 from typing import Any
 
 import numpy as np
@@ -47,6 +49,7 @@ def extract_normalized_embedding(face: Any) -> np.ndarray:
 
 
 def embedding_metadata(embedding: np.ndarray) -> dict[str, object]:
+    """Describe an embedding without serializing its biometric vector values."""
     return {
         "dimension": int(embedding.shape[0]),
         "dtype": str(embedding.dtype),

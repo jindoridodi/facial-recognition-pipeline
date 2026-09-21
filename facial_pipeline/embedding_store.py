@@ -1,3 +1,5 @@
+"""Persist validated recognition vectors and their compatibility metadata in SQLite."""
+
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -16,6 +18,7 @@ from facial_pipeline.config import (
 
 @dataclass(frozen=True)
 class EmbeddingRecord:
+    """One stored unit vector plus the metadata required to compare it safely."""
     embedding_id: str
     subject_id: str
     embedding: np.ndarray
@@ -27,6 +30,7 @@ class EmbeddingRecord:
     created_at: str
 
     def metadata(self) -> dict[str, object]:
+        """Return the vector-free fields that are safe to expose to API clients."""
         return {
             "embedding_id": self.embedding_id,
             "subject_id": self.subject_id,
@@ -40,16 +44,22 @@ class EmbeddingRecord:
 
 
 class EmbeddingStore:
+    """Provide SQLite-backed CRUD operations for normalized face embeddings."""
+
     def __init__(self, path: Path) -> None:
+        """Keep the database location without opening a connection eagerly."""
         self.path = Path(path)
 
     def _connect(self) -> sqlite3.Connection:
+        """Open a database connection configured for named-column row access."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.path, timeout=10)
         connection.row_factory = sqlite3.Row
         return connection
 
     def _initialize(self, connection: sqlite3.Connection) -> None:
+        """Create the embedding table and lookup index when the database is new."""
+        # WAL lets readers continue while a detection request writes enrollment data.
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute(
             """
@@ -72,6 +82,7 @@ class EmbeddingStore:
         )
 
     def save(self, subject_id: str, embedding: np.ndarray) -> EmbeddingRecord:
+        """Validate and persist one named embedding, returning its generated record."""
         vector = self._validated_vector(embedding)
         record = EmbeddingRecord(
             embedding_id=str(uuid4()),
@@ -97,6 +108,7 @@ class EmbeddingStore:
                 (
                     record.embedding_id,
                     record.subject_id,
+                    # Persist an explicit byte order so vectors remain portable across hosts.
                     sqlite3.Binary(record.embedding.astype("<f4", copy=False).tobytes()),
                     record.dimension,
                     record.dtype,
@@ -109,6 +121,7 @@ class EmbeddingStore:
         return record
 
     def get(self, embedding_id: str | UUID) -> EmbeddingRecord | None:
+        """Look up one record by UUID, returning nothing when it is absent."""
         with self._connect() as connection:
             self._initialize(connection)
             row = connection.execute(
@@ -121,6 +134,7 @@ class EmbeddingStore:
         return self._record_from_row(row)
 
     def list_all(self) -> list[EmbeddingRecord]:
+        """Return every record in deterministic newest-first order for matching."""
         with self._connect() as connection:
             self._initialize(connection)
             rows = connection.execute(
@@ -131,6 +145,8 @@ class EmbeddingStore:
 
     @staticmethod
     def _record_from_row(row: sqlite3.Row) -> EmbeddingRecord:
+        """Reconstruct a detached NumPy vector from SQLite's binary representation."""
+        # Copy detaches the vector from SQLite's row buffer before the connection closes.
         embedding = np.frombuffer(row["embedding"], dtype="<f4").copy()
         if embedding.shape != (row["dimension"],):
             raise ValueError("Stored embedding size does not match its metadata")
@@ -147,6 +163,7 @@ class EmbeddingStore:
         )
 
     def delete(self, embedding_id: str | UUID) -> bool:
+        """Delete one record and report whether its UUID existed."""
         with self._connect() as connection:
             self._initialize(connection)
             cursor = connection.execute(
@@ -156,6 +173,7 @@ class EmbeddingStore:
         return cursor.rowcount == 1
 
     def delete_all(self) -> int:
+        """Remove every enrollment record and return the number removed."""
         with self._connect() as connection:
             self._initialize(connection)
             cursor = connection.execute("DELETE FROM embeddings")
@@ -163,6 +181,7 @@ class EmbeddingStore:
 
     @staticmethod
     def _validated_vector(embedding: np.ndarray) -> np.ndarray:
+        """Enforce the canonical contiguous float32 unit-vector storage format."""
         vector = np.asarray(embedding, dtype=np.float32)
         if vector.shape != (EMBEDDING_DIMENSION,):
             raise ValueError(f"Embedding must have shape ({EMBEDDING_DIMENSION},)")

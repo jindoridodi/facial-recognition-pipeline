@@ -1,3 +1,5 @@
+"""Expose detection, enrollment, and embedding-deletion HTTP endpoints."""
+
 import logging
 from uuid import UUID
 
@@ -18,11 +20,13 @@ embedding_store = EmbeddingStore(EMBEDDING_DB_PATH)
 
 @router.get("/health")
 def health() -> dict[str, str]:
+    """Report that the API process is responding without loading the model."""
     return {"status": "ok"}
 
 
 @router.post("/detect")
 def detect(request: ImageRequest) -> dict:
+    """Detect faces and attach any compatible saved identity to each response face."""
     try:
         result = pipeline.analyze(request.image)
     except Exception as error:
@@ -32,6 +36,7 @@ def detect(request: ImageRequest) -> dict:
     try:
         candidates = embedding_store.list_all()
         response = pipeline.detection_response(result)
+        # Keep embeddings inside the service layer; clients receive only match metadata.
         for face, processed_face in zip(response["faces"], result.faces):
             match = find_best_match(
                 processed_face.embedding,
@@ -50,6 +55,7 @@ def detect(request: ImageRequest) -> dict:
 
 @router.post("/enroll", status_code=status.HTTP_201_CREATED)
 def enroll(request: EnrollmentRequest) -> dict[str, object]:
+    """Store the requested face from one image as a named recognition sample."""
     try:
         result = pipeline.analyze(request.image)
     except Exception as error:
@@ -62,6 +68,7 @@ def enroll(request: EnrollmentRequest) -> dict[str, object]:
             detail=f"Enrollment requires exactly one face; detected {len(result.faces)}",
         )
 
+    # An omitted index is unambiguous only for an image containing one face.
     face_index = request.face_index if request.face_index is not None else 0
     if face_index >= len(result.faces):
         raise HTTPException(
@@ -91,6 +98,7 @@ def enroll(request: EnrollmentRequest) -> dict[str, object]:
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def delete_all_embeddings() -> Response:
+    """Remove all enrolled samples after the caller has confirmed that action."""
     try:
         embedding_store.delete_all()
     except Exception as error:
@@ -107,6 +115,7 @@ def delete_all_embeddings() -> Response:
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def delete_embedding(embedding_id: UUID) -> Response:
+    """Remove one enrollment sample identified by its UUID."""
     try:
         deleted = embedding_store.delete(embedding_id)
     except Exception as error:
